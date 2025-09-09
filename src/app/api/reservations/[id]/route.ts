@@ -1,12 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-// ✅ Correct signature: context has { params: { id: string } }
-export async function DELETE(_req: NextRequest, context: { params: { id: string } }) {
-  const { id } = context.params;
-  void id; // silence "unused" if needed
+// In Next 15, params is a Promise in route handlers.
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params; // await the Promise
+  void id; // silence "unused" warning
 
-  // Empty body so HTMX removes the row, plus a toast trigger
   return new NextResponse("", {
     headers: { "HX-Trigger": "reservation-cancelled" },
   });
