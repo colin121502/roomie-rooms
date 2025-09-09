@@ -1,13 +1,12 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-type Ctx = { params: { id: string } };
+// ✅ Correct signature: context has { params: { id: string } }
+export async function DELETE(_req: NextRequest, context: { params: { id: string } }) {
+  const { id } = context.params;
+  void id; // silence "unused" if needed
 
-export async function DELETE(_req: Request, { params }: Ctx) {
-  // use the id if you want to avoid "unused" warnings
-  const { id } = params;
-  void id; // (silences no-unused-vars without changing behavior)
-
-  // HTMX will remove the row since we return an empty body.
+  // Empty body so HTMX removes the row, plus a toast trigger
   return new NextResponse("", {
     headers: { "HX-Trigger": "reservation-cancelled" },
   });
