@@ -1,12 +1,9 @@
 "use client";
-export const dynamic = 'force-dynamic';
-export const fetchCache = 'force-no-store';
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
 import { getSupabase } from "@/lib/supabaseClient";
-
-// inside your load/test/booking functions:
-const supabase = getSupabase();
 
 type Room = { id: string; name: string };
 type Slot = { id: string; starts_at: string; ends_at: string };
@@ -15,9 +12,6 @@ type Reservation = { id: string; room_id: string; timeslot_id: string; date: str
 const FAKE_USER_ID = "00000000-0000-0000-0000-000000000000"; // replace with real auth later
 
 export default function Home() {
-  // ------- landing UI only state (none) -------
-
-  // ------- booking state -------
   const [rooms, setRooms] = useState<Room[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
@@ -32,6 +26,7 @@ export default function Home() {
     const loadStatic = async () => {
       setLoadingStatic(true);
       setErrorMsg(null);
+      const supabase = getSupabase();
       const [rRooms, rSlots] = await Promise.all([
         supabase.from("Rooms").select("id,name").order("name"),
         supabase.from("TimeSlots").select("id,starts_at,ends_at").order("starts_at"),
@@ -48,6 +43,7 @@ export default function Home() {
   // load reservations for chosen day
   useEffect(() => {
     const loadDay = async () => {
+      const supabase = getSupabase();
       const { data, error } = await supabase
         .from("Reservations")
         .select("id,room_id,timeslot_id,date,status")
@@ -58,7 +54,6 @@ export default function Home() {
     loadDay();
   }, [date]);
 
-  // which slots are already taken for the selected room?
   const disabledSlotIds = useMemo(() => {
     if (!roomId) return new Set<string>();
     return new Set(dayReservations.filter(r => r.room_id === roomId).map(r => r.timeslot_id));
@@ -71,12 +66,9 @@ export default function Home() {
     }
     setBookingId(timeslotId);
 
-    // (use auth later) const { data: auth } = await supabase.auth.getUser();
-    // const userId = auth.user?.id;
-    const userId = FAKE_USER_ID;
-
+    const supabase = getSupabase();
     const { error } = await supabase.from("Reservations").insert({
-      user_id: userId,
+      user_id: FAKE_USER_ID,
       room_id: roomId,
       timeslot_id: timeslotId,
       date,
@@ -86,7 +78,6 @@ export default function Home() {
     if (error) {
       alert("Booking failed: " + error.message);
     } else {
-      // refresh day reservations to disable the slot
       const { data } = await supabase
         .from("Reservations")
         .select("id,room_id,timeslot_id,date,status")
@@ -100,7 +91,7 @@ export default function Home() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
-      {/* ====== HERO (your existing content) ====== */}
+      {/* ====== HERO ====== */}
       <section className="grid gap-6 md:grid-cols-2">
         <div>
           <h1 className="text-4xl font-bold">Roomie Rooms</h1>
@@ -119,7 +110,10 @@ export default function Home() {
           </ul>
 
           <div className="mt-8">
-            <a href="/reservations" className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
+            <a
+              href="/reservations"
+              className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
+            >
               Get Started
             </a>
           </div>
@@ -182,7 +176,9 @@ export default function Home() {
                         key={s.id}
                         onClick={() => book(s.id)}
                         disabled={disabled}
-                        className={`px-3 py-2 rounded-xl border text-sm ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"}`}
+                        className={`px-3 py-2 rounded-xl border text-sm ${
+                          disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+                        }`}
                       >
                         {s.starts_at}–{s.ends_at}
                       </button>
