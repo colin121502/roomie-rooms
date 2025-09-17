@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabase } from "@/lib/supabaseClient";
 
 type Row = {
   id: string;
@@ -24,6 +24,7 @@ export default function MyReservationsPage() {
     const load = async () => {
       setLoading(true); setError(null);
 
+      const supabase = getSupabase();
       const { data, error } = await supabase
         .from("Reservations")
         .select("id, date, status, Rooms(name), TimeSlots(starts_at, ends_at)")
@@ -42,6 +43,7 @@ export default function MyReservationsPage() {
 
   const cancelReservation = async (id: string) => {
     setCancelingId(id);
+    const supabase = getSupabase();
     const { error } = await supabase.from("Reservations").update({ status: "CANCELED" }).eq("id", id);
     if (error) alert("Cancel failed: " + error.message);
     else setRows(prev => prev.filter(r => r.id !== id));

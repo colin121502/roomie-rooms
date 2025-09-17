@@ -1,7 +1,12 @@
 "use client";
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabase } from "@/lib/supabaseClient";
+
+// inside your load/test/booking functions:
+const supabase = getSupabase();
 
 type Room = { id: string; name: string };
 type Slot = { id: string; starts_at: string; ends_at: string };
