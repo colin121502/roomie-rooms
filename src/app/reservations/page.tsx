@@ -28,10 +28,11 @@ export default function MyReservationsPage() {
         .select("id, date, status, Rooms(name), TimeSlots(starts_at, ends_at)")
         .eq("user_id", FAKE_USER_ID)  // swap to auth later
         .neq("status", "CANCELED")
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .returns<Row[]>();
 
       if (error) setError(error.message);
-      else setRows((data ?? []) as any);
+     else setRows(data ?? []);
 
       setLoading(false);
     };
