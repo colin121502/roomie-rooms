@@ -9,8 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@supabase/supabase-js": "^2.57.4",
     "next": "15.5.2",
+=======
+    "next": "15.5.2",
+    "next-themes": "^0.4.6",
+>>>>>>> 6fb4cb3 (Add Tailwind config and update packages for dark mode support)
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
