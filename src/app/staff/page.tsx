@@ -41,7 +41,6 @@ const lastOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
 /** Build a Mon→Sun month grid (6 rows, 7 cols) that includes leading/trailing days */
 function buildMonthGrid(target: Date) {
   const start = firstOfMonth(target);
-  const end = lastOfMonth(target);
 
   // Monday as first column
   const startWeekday = (start.getDay() + 6) % 7; // 0=Mon ... 6=Sun
