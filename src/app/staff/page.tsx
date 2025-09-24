@@ -7,25 +7,44 @@ import { getSupabase } from "@/lib/supabaseClient";
 
 /* ========= Types ========= */
 type Room = { id: string; name: string };
+
 type Reservation = {
   id: string;
-  date: string;                  // 'YYYY-MM-DD'
+  date: string; // 'YYYY-MM-DD'
   status: string;
   room_id: string;
   timeslot_id: string;
   Rooms?: { name: string } | null;
   TimeSlots?: { starts_at: string; ends_at: string } | null;
 };
+
 type Blackout = {
   id: string;
-  date: string;                  // 'YYYY-MM-DD'
+  date: string; // 'YYYY-MM-DD'
   scope: "GLOBAL" | "ROOM";
   room_id: string | null;
   is_all_day: boolean;
-  start_time: string | null;     // 'HH:MM:SS' when partial
-  end_time: string | null;       // 'HH:MM:SS' when partial
+  start_time: string | null; // 'HH:MM:SS' when partial
+  end_time: string | null;   // 'HH:MM:SS' when partial
   note: string | null;
 };
+
+/* ========= Type guards ========= */
+function isBlackoutArray(input: unknown): input is Blackout[] {
+  if (!Array.isArray(input)) return false;
+  for (const e of input) {
+    if (typeof e !== "object" || e === null) return false;
+    const o = e as Record<string, unknown>;
+    if (typeof o.id !== "string") return false;
+    if (typeof o.date !== "string") return false;
+    if (o.scope !== "GLOBAL" && o.scope !== "ROOM") return false;
+    if (!("room_id" in o)) return false; // string or null
+    if (typeof o.is_all_day !== "boolean") return false;
+    if (!("start_time" in o) || !("end_time" in o)) return false; // string|null
+    if (!("note" in o)) return false; // string|null
+  }
+  return true;
+}
 
 /* ========= Small helpers ========= */
 const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
@@ -81,7 +100,7 @@ export default function StaffPage() {
   /* ======== Derived ======== */
   const monthDays = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
   const monthStartISO = toISODate(firstOfMonth(monthCursor));
-  const monthEndISO   = toISODate(lastOfMonth(monthCursor));
+  const monthEndISO = toISODate(lastOfMonth(monthCursor));
 
   const blackoutsByDate = useMemo(() => {
     const map = new Map<string, Blackout[]>();
@@ -163,16 +182,36 @@ export default function StaffPage() {
       room_id: boScope === "ROOM" ? boRoomId : null,
       is_all_day: boAllDay,
       start_time: boAllDay ? null : `${boStart}:00`,
-      end_time:   boAllDay ? null : `${boEnd}:00`,
+      end_time: boAllDay ? null : `${boEnd}:00`,
       note: boNote || null,
     };
 
-    const { error, data } = await supabase.from("Blackouts").insert(payload).select();
+    const { error, data } = await supabase
+      .from("Blackouts")
+      .insert(payload)
+      .select("id,date,scope,room_id,is_all_day,start_time,end_time,note");
+
     if (error) {
       alert("Add blackout failed: " + error.message);
       return;
     }
-    setBlackouts(prev => [...prev, ...(data as any as Blackout[])]);
+
+    if (isBlackoutArray(data)) {
+      setBlackouts((prev) => [...prev, ...data]);
+    } else {
+      // Fallback: refetch month range to stay consistent
+      const { data: refreshed, error: refErr } = await supabase
+        .from("Blackouts")
+        .select("id,date,scope,room_id,is_all_day,start_time,end_time,note")
+        .gte("date", monthStartISO)
+        .lte("date", monthEndISO)
+        .order("date", { ascending: true });
+      if (!refErr && isBlackoutArray(refreshed)) {
+        setBlackouts(refreshed);
+      }
+    }
+
+    // Reset only the note
     setBoNote("");
   }
 
@@ -183,7 +222,7 @@ export default function StaffPage() {
       alert("Remove failed: " + error.message);
       return;
     }
-    setBlackouts(prev => prev.filter(b => b.id !== id));
+    setBlackouts((prev) => prev.filter((b) => b.id !== id));
   }
 
   /* ======== UI ======== */
@@ -196,17 +235,23 @@ export default function StaffPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-3">
           <div>
             <h2 className="heading text-lg">View Reservations</h2>
-            <p className="muted text-sm">Choose any date to view all reservations, even if none exist.</p>
+            <p className="muted text-sm">
+              Choose any date to view all reservations, even if none exist.
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn-outline text-sm" onClick={prevDay}>← Prev day</button>
+            <button className="btn-outline text-sm" onClick={prevDay}>
+              ← Prev day
+            </button>
             <input
               type="date"
               value={resDate}
               onChange={(e) => setResDate(e.target.value)}
               className="input w-[12rem]"
             />
-            <button className="btn-outline text-sm" onClick={nextDay}>Next day →</button>
+            <button className="btn-outline text-sm" onClick={nextDay}>
+              Next day →
+            </button>
           </div>
         </div>
 
@@ -228,7 +273,11 @@ export default function StaffPage() {
                 {reservations.map((r) => (
                   <tr key={r.id}>
                     <td className="td">
-                      {r.TimeSlots ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(r.TimeSlots.ends_at)}` : "—"}
+                      {r.TimeSlots
+                        ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(
+                            r.TimeSlots.ends_at
+                          )}`
+                        : "—"}
                     </td>
                     <td className="td">{r.Rooms?.name ?? "Room"}</td>
                     <td className="td">{r.status}</td>
@@ -279,7 +328,9 @@ export default function StaffPage() {
             >
               <option value="">Select a room…</option>
               {rooms.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
               ))}
             </select>
           </div>
@@ -331,7 +382,9 @@ export default function StaffPage() {
         </div>
 
         <div className="mt-4">
-          <button className="btn" onClick={addBlackout}>Add Blackout</button>
+          <button className="btn" onClick={addBlackout}>
+            Add Blackout
+          </button>
         </div>
       </section>
 
@@ -343,18 +396,37 @@ export default function StaffPage() {
             <button
               className="btn-outline text-sm"
               onClick={() =>
-                setMonthCursor(firstOfMonth(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1)))
+                setMonthCursor(
+                  firstOfMonth(
+                    new Date(
+                      monthCursor.getFullYear(),
+                      monthCursor.getMonth() - 1,
+                      1
+                    )
+                  )
+                )
               }
             >
               ← Prev
             </button>
             <div className="muted">
-              {monthCursor.toLocaleString(undefined, { month: "long", year: "numeric" })}
+              {monthCursor.toLocaleString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
             </div>
             <button
               className="btn-outline text-sm"
               onClick={() =>
-                setMonthCursor(firstOfMonth(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1)))
+                setMonthCursor(
+                  firstOfMonth(
+                    new Date(
+                      monthCursor.getFullYear(),
+                      monthCursor.getMonth() + 1,
+                      1
+                    )
+                  )
+                )
               }
             >
               Next →
@@ -366,8 +438,10 @@ export default function StaffPage() {
           <div className="muted">Loading…</div>
         ) : (
           <div className="grid grid-cols-7 gap-3">
-            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => (
-              <div key={d} className="muted text-sm">{d}</div>
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              <div key={d} className="muted text-sm">
+                {d}
+              </div>
             ))}
 
             {monthDays.map(({ date, inMonth }) => {
@@ -377,8 +451,13 @@ export default function StaffPage() {
               return (
                 <div
                   key={iso}
-                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${inMonth ? "" : "opacity-40"}`}
-                  style={{ background: "var(--panel)", borderColor: "var(--panel-border)" }}
+                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${
+                    inMonth ? "" : "opacity-40"
+                  }`}
+                  style={{
+                    background: "var(--panel)",
+                    borderColor: "var(--panel-border)",
+                  }}
                 >
                   <div className="text-sm font-medium">{date.getDate()}</div>
 
@@ -386,18 +465,26 @@ export default function StaffPage() {
                     const labelScope =
                       b.scope === "GLOBAL"
                         ? "Global"
-                        : rooms.find(r => r.id === b.room_id)?.name || "Room";
-                    const timeLabel = b.is_all_day ? "All day" : `${fmtTime(b.start_time)}–${fmtTime(b.end_time)}`;
+                        : rooms.find((r) => r.id === b.room_id)?.name || "Room";
+                    const timeLabel = b.is_all_day
+                      ? "All day"
+                      : `${fmtTime(b.start_time)}–${fmtTime(b.end_time)}`;
 
                     return (
                       <div key={b.id} className="flex items-start gap-2">
                         <button
                           className="w-full text-left rounded-md px-2 py-1 text-xs leading-5 whitespace-normal break-words"
-                          style={{ background: "color-mix(in oklab, var(--foreground) 10%, transparent)" }}
-                          title={`${labelScope} • ${timeLabel}${b.note ? ` — ${b.note}` : ""}`}
+                          style={{
+                            background:
+                              "color-mix(in oklab, var(--foreground) 10%, transparent)",
+                          }}
+                          title={`${labelScope} • ${timeLabel}${
+                            b.note ? ` — ${b.note}` : ""
+                          }`}
                         >
                           <div className="whitespace-normal break-words">
-                            <strong className="font-medium">{labelScope}</strong>{" • "}{timeLabel}
+                            <strong className="font-medium">{labelScope}</strong>{" "}
+                            • {timeLabel}
                             {b.note ? ` — ${b.note}` : ""}
                           </div>
                         </button>
