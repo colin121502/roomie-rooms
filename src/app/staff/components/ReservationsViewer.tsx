@@ -1,125 +1,155 @@
 "use client";
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabaseClient";
 
-type Room = { id: string; name: string };
+/** ---------- Types ---------- */
 type Row = {
   id: string;
-  date: string;                 // YYYY-MM-DD
-  status: string;               // BOOKED / CANCELED / ...
+  date: string; // YYYY-MM-DD
+  status: string;
+  user_id: string;
   Rooms: { name: string } | null;
   TimeSlots: { starts_at: string; ends_at: string } | null;
-  user_id: string | null;       // optional if present
 };
 
-function fmt(t?: string | null) {
-  return t ? t.slice(0,5) : "";
+// What Supabase may actually return (relations can be arrays or single objects)
+type ApiRow = {
+  id: string;
+  date: string;
+  status: string;
+  user_id: string;
+  Rooms: { name: string } | { name: string }[] | null;
+  TimeSlots:
+    | { starts_at: string; ends_at: string }
+    | { starts_at: string; ends_at: string }[]
+    | null;
+};
+
+/** ---------- Helpers ---------- */
+const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+const todayISO = () => toISODate(new Date());
+const addDays = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+};
+const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
+
+function firstOf<T>(val: T | T[] | null | undefined): T | null {
+  if (Array.isArray(val)) return val[0] ?? null;
+  return val ?? null;
 }
 
+/** ---------- Component ---------- */
 export default function ReservationsViewer() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0,10));
-  const [roomId, setRoomId] = useState<string>(""); // empty = all rooms
+  const [selectedDate, setSelectedDate] = useState<string>(todayISO());
   const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // initial rooms
-  useEffect(() => {
-    (async () => {
-      const supabase = getSupabase();
-      const { data, error } = await supabase.from("Rooms").select("id,name").order("name");
-      if (!error) setRooms((data ?? []) as Room[]);
-    })();
-  }, []);
-
-  // load reservations for filters
+  // Fetch reservations for the chosen date
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setErr(null);
       const supabase = getSupabase();
-      let q = supabase
+
+      const { data, error } = await supabase
         .from("Reservations")
-        .select("id, date, status, user_id, Rooms(name), TimeSlots(starts_at, ends_at)")
-        .eq("date", date)
+        .select(
+          "id,date,status,user_id, Rooms(name), TimeSlots(starts_at,ends_at)"
+        )
+        .eq("date", selectedDate)
         .neq("status", "CANCELED")
-        .order("date", { ascending: true });
+        .order("timeslot_id", { ascending: true });
 
-      if (roomId) q = q.eq("room_id", roomId);
+      if (error) {
+        setErr(error.message);
+        setRows([]);
+      } else {
+        const list = (data ?? []) as ReadonlyArray<ApiRow>;
+        const normalized: Row[] = list.map((r) => ({
+          id: r.id,
+          date: r.date,
+          status: r.status,
+          user_id: r.user_id,
+          Rooms: firstOf(r.Rooms),
+          TimeSlots: firstOf(r.TimeSlots),
+        }));
+        setRows(normalized);
+      }
 
-      const { data, error } = await q;
-      if (error) setErr(error.message);
-      else setRows((data ?? []) as Row[]);
       setLoading(false);
     };
+
     load();
-  }, [date, roomId]);
+  }, [selectedDate]);
 
-  const totals = useMemo(() => ({
-    count: rows.length,
-  }), [rows]);
+  const prevDay = () => setSelectedDate(toISODate(addDays(new Date(selectedDate), -1)));
+  const nextDay = () => setSelectedDate(toISODate(addDays(new Date(selectedDate), 1)));
 
+  /** ---------- UI ---------- */
   return (
     <section className="card">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="heading text-lg">Reservations</h3>
-        <div className="muted text-sm">{totals.count} total</div>
-      </div>
-
-      {/* Filters */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-3">
         <div>
-          <label className="block text-sm mb-1 muted">Date</label>
+          <h2 className="heading text-lg">View Reservations</h2>
+          <p className="muted text-sm">
+            Choose any date to view all reservations, even if none exist.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="btn-outline text-sm" onClick={prevDay}>
+            ← Prev day
+          </button>
           <input
             type="date"
-            className="input"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="input w-[12rem]"
           />
-        </div>
-        <div>
-          <label className="block text-sm mb-1 muted">Room</label>
-          <select
-            className="select"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-          >
-            <option value="">All rooms</option>
-            {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
+          <button className="btn-outline text-sm" onClick={nextDay}>
+            Next day →
+          </button>
         </div>
       </div>
 
-      {/* Table */}
+      {err && <div className="mb-3 text-red-600 dark:text-red-400">{err}</div>}
+
       {loading ? (
         <div className="muted">Loading…</div>
-      ) : err ? (
-        <div className="text-red-600 dark:text-red-400">{err}</div>
       ) : rows.length === 0 ? (
-        <div className="muted">No reservations for this selection.</div>
+        <div className="muted">No reservations on {selectedDate}.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="table">
             <thead>
-              <tr className="th">
-                <th className="text-left">Time</th>
-                <th className="text-left">Room</th>
-                <th className="text-left">Status</th>
-                <th className="text-left">User</th>
+              <tr>
+                <th className="th">Time</th>
+                <th className="th">Room</th>
+                <th className="th">Status</th>
+                <th className="th">User</th>
               </tr>
             </thead>
             <tbody>
-              {rows
-                .sort((a, b) => (a.TimeSlots?.starts_at ?? "").localeCompare(b.TimeSlots?.starts_at ?? ""))
-                .map(r => (
-                  <tr key={r.id} className="border-b" style={{ borderColor: "var(--panel-border)" }}>
-                    <td className="py-2">{fmt(r.TimeSlots?.starts_at)}–{fmt(r.TimeSlots?.ends_at)}</td>
-                    <td className="py-2">{r.Rooms?.name ?? "Room"}</td>
-                    <td className="py-2">{r.status}</td>
-                    <td className="py-2">{r.user_id?.slice(0,8) ?? "—"}</td>
-                  </tr>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="td">
+                    {r.TimeSlots
+                      ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(
+                          r.TimeSlots.ends_at
+                        )}`
+                      : "—"}
+                  </td>
+                  <td className="td">{r.Rooms?.name ?? "Room"}</td>
+                  <td className="td">{r.status}</td>
+                  <td className="td">
+                    <span className="muted text-xs">{r.user_id}</span>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
