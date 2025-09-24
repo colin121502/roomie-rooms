@@ -14,8 +14,21 @@ type Reservation = {
   status: string;
   room_id: string;
   timeslot_id: string;
-  Rooms?: { name: string } | null;
-  TimeSlots?: { starts_at: string; ends_at: string } | null;
+  Rooms: { name: string } | null;
+  TimeSlots: { starts_at: string; ends_at: string } | null;
+};
+
+type ApiReservation = {
+  id: string;
+  date: string;
+  status: string;
+  room_id: string;
+  timeslot_id: string;
+  Rooms: { name: string } | { name: string }[] | null;
+  TimeSlots:
+    | { starts_at: string; ends_at: string }
+    | { starts_at: string; ends_at: string }[]
+    | null;
 };
 
 type Blackout = {
@@ -29,23 +42,6 @@ type Blackout = {
   note: string | null;
 };
 
-/* ========= Type guards ========= */
-function isBlackoutArray(input: unknown): input is Blackout[] {
-  if (!Array.isArray(input)) return false;
-  for (const e of input) {
-    if (typeof e !== "object" || e === null) return false;
-    const o = e as Record<string, unknown>;
-    if (typeof o.id !== "string") return false;
-    if (typeof o.date !== "string") return false;
-    if (o.scope !== "GLOBAL" && o.scope !== "ROOM") return false;
-    if (!("room_id" in o)) return false; // string or null
-    if (typeof o.is_all_day !== "boolean") return false;
-    if (!("start_time" in o) || !("end_time" in o)) return false; // string|null
-    if (!("note" in o)) return false; // string|null
-  }
-  return true;
-}
-
 /* ========= Small helpers ========= */
 const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
@@ -55,13 +51,12 @@ const addDays = (d: Date, n: number) => {
   return x;
 };
 const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
-const lastOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+const lastOfMonth  = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+const todayISO = () => toISODate(new Date());
 
-/** Build a Mon→Sun month grid (6 rows, 7 cols) that includes leading/trailing days */
+/** Mon→Sun month grid (6 rows, 7 cols) including leading/trailing days */
 function buildMonthGrid(target: Date) {
   const start = firstOfMonth(target);
-
-  // Monday as first column
   const startWeekday = (start.getDay() + 6) % 7; // 0=Mon ... 6=Sun
   const gridStart = addDays(start, -startWeekday);
 
@@ -73,23 +68,30 @@ function buildMonthGrid(target: Date) {
   return days;
 }
 
+/** Pick first item if array, else the value; allow null/undefined */
+function firstOf<T>(val: T | T[] | null | undefined): T | null {
+  if (Array.isArray(val)) return val[0] ?? null;
+  return val ?? null;
+}
+
+/* ========= Component ========= */
 export default function StaffPage() {
-  /* ======== State ======== */
+  /* Rooms */
   const [rooms, setRooms] = useState<Room[]>([]);
 
-  // Reservations viewer
-  const [resDate, setResDate] = useState<string>(() => toISODate(new Date()));
+  /* Reservations viewer */
+  const [resDate, setResDate] = useState<string>(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loadingRes, setLoadingRes] = useState<boolean>(true);
 
-  // Blackouts & calendar
+  /* Blackouts & calendar */
   const [monthCursor, setMonthCursor] = useState<Date>(firstOfMonth(new Date()));
   const [blackouts, setBlackouts] = useState<Blackout[]>([]);
   const [loadingMonth, setLoadingMonth] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Add-blackout form
-  const [boDate, setBoDate] = useState<string>(() => toISODate(new Date()));
+  /* Add-blackout form */
+  const [boDate, setBoDate] = useState<string>(todayISO());
   const [boScope, setBoScope] = useState<"GLOBAL" | "ROOM">("GLOBAL");
   const [boRoomId, setBoRoomId] = useState<string>("");
   const [boAllDay, setBoAllDay] = useState(true);
@@ -97,10 +99,10 @@ export default function StaffPage() {
   const [boEnd, setBoEnd] = useState<string>("22:00");
   const [boNote, setBoNote] = useState<string>("");
 
-  /* ======== Derived ======== */
+  /* Derived */
   const monthDays = useMemo(() => buildMonthGrid(monthCursor), [monthCursor]);
   const monthStartISO = toISODate(firstOfMonth(monthCursor));
-  const monthEndISO = toISODate(lastOfMonth(monthCursor));
+  const monthEndISO   = toISODate(lastOfMonth(monthCursor));
 
   const blackoutsByDate = useMemo(() => {
     const map = new Map<string, Blackout[]>();
@@ -111,7 +113,7 @@ export default function StaffPage() {
     return map;
   }, [blackouts]);
 
-  /* ======== Load static (rooms) ======== */
+  /* Load Rooms once */
   useEffect(() => {
     const run = async () => {
       const supabase = getSupabase();
@@ -121,14 +123,14 @@ export default function StaffPage() {
     run();
   }, []);
 
-  /* ======== Load reservations for selected date ======== */
+  /* Load reservations for selected date */
   useEffect(() => {
     const run = async () => {
       setLoadingRes(true);
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from("Reservations")
-        .select("id,date,status,room_id,timeslot_id,Rooms(name),TimeSlots(starts_at,ends_at)")
+        .select("id,date,status,room_id,timeslot_id, Rooms(name), TimeSlots(starts_at,ends_at)")
         .eq("date", resDate)
         .neq("status", "CANCELED")
         .order("timeslot_id", { ascending: true });
@@ -137,14 +139,24 @@ export default function StaffPage() {
         console.error(error.message);
         setReservations([]);
       } else {
-        setReservations((data ?? []) as Reservation[]);
+        const list = (data ?? []) as ReadonlyArray<ApiReservation>;
+        const normalized: Reservation[] = list.map((r) => ({
+          id: r.id,
+          date: r.date,
+          status: r.status,
+          room_id: r.room_id,
+          timeslot_id: r.timeslot_id,
+          Rooms: firstOf(r.Rooms),
+          TimeSlots: firstOf(r.TimeSlots),
+        }));
+        setReservations(normalized);
       }
       setLoadingRes(false);
     };
     run();
   }, [resDate]);
 
-  /* ======== Load month blackouts ======== */
+  /* Load month blackouts */
   useEffect(() => {
     const run = async () => {
       setLoadingMonth(true);
@@ -165,7 +177,7 @@ export default function StaffPage() {
     run();
   }, [monthStartISO, monthEndISO]);
 
-  /* ======== Handlers ======== */
+  /* Handlers */
   const prevDay = () => setResDate(toISODate(addDays(new Date(resDate), -1)));
   const nextDay = () => setResDate(toISODate(addDays(new Date(resDate), 1)));
 
@@ -196,22 +208,13 @@ export default function StaffPage() {
       return;
     }
 
-    if (isBlackoutArray(data)) {
-      setBlackouts((prev) => [...prev, ...data]);
-    } else {
-      // Fallback: refetch month range to stay consistent
-      const { data: refreshed, error: refErr } = await supabase
-        .from("Blackouts")
-        .select("id,date,scope,room_id,is_all_day,start_time,end_time,note")
-        .gte("date", monthStartISO)
-        .lte("date", monthEndISO)
-        .order("date", { ascending: true });
-      if (!refErr && isBlackoutArray(refreshed)) {
-        setBlackouts(refreshed);
-      }
+    // If the new blackout is in the visible month, append; else ignore (will appear when that month is viewed)
+    const appended = (data ?? []) as Blackout[];
+    const withinMonth = appended.filter((b) => b.date >= monthStartISO && b.date <= monthEndISO);
+    if (withinMonth.length > 0) {
+      setBlackouts((prev) => [...prev, ...withinMonth]);
     }
 
-    // Reset only the note
     setBoNote("");
   }
 
@@ -225,7 +228,7 @@ export default function StaffPage() {
     setBlackouts((prev) => prev.filter((b) => b.id !== id));
   }
 
-  /* ======== UI ======== */
+  /* ========= UI ========= */
   return (
     <div className="p-6 mx-auto max-w-6xl space-y-8">
       <h1 className="heading text-2xl">Staff Dashboard</h1>
