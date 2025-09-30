@@ -15,8 +15,8 @@ type Blackout = {
   scope: "GLOBAL" | "ROOM";
   room_id: string | null;
   is_all_day: boolean;
-  start_time: string | null; // 'HH:MM:SS' when partial
-  end_time: string | null;   // 'HH:MM:SS' when partial
+  start_time: string | null; // 'HH:MM:SS'
+  end_time: string | null;   // 'HH:MM:SS'
   note: string | null;
 };
 
@@ -26,8 +26,13 @@ const toISODate = (d: Date) => d.toISOString().slice(0, 10);
 const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 const lastOfMonth  = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
 
+function addDays(d: Date, n: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
 /** Mon→Sun month grid (6 rows, 7 cols) including leading/trailing days */
-function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function buildMonthGrid(target: Date) {
   const start = firstOfMonth(target);
   const startWeekday = (start.getDay() + 6) % 7; // 0=Mon ... 6=Sun
@@ -104,6 +109,50 @@ export default function StaffPage() {
     };
     run();
   }, [monthStartISO, monthEndISO]);
+
+  /* Handlers */
+  async function addBlackout() {
+    if (boScope === "ROOM" && !boRoomId) {
+      alert("Pick a room for a room-specific blackout.");
+      return;
+    }
+
+    const supabase = getSupabase();
+    const payload = {
+      date: boDate,
+      scope: boScope,
+      room_id: boScope === "ROOM" ? boRoomId : null,
+      is_all_day: boAllDay,
+      start_time: boAllDay ? null : `${boStart}:00`,
+      end_time: boAllDay ? null : `${boEnd}:00`,
+      note: boNote || null,
+    };
+
+    const { error, data } = await supabase
+      .from("Blackouts")
+      .insert(payload)
+      .select("id,date,scope,room_id,is_all_day,start_time,end_time,note");
+
+    if (error) {
+      alert("Add blackout failed: " + error.message);
+      return;
+    }
+
+    const appended = (data ?? []) as Blackout[];
+    const withinMonth = appended.filter((b) => b.date >= monthStartISO && b.date <= monthEndISO);
+    if (withinMonth.length > 0) setBlackouts((prev) => [...prev, ...withinMonth]);
+    setBoNote("");
+  }
+
+  async function removeBlackout(id: string) {
+    const supabase = getSupabase();
+    const { error } = await supabase.from("Blackouts").delete().eq("id", id);
+    if (error) {
+      alert("Remove failed: " + error.message);
+      return;
+    }
+    setBlackouts((prev) => prev.filter((b) => b.id !== id));
+  }
 
   /* ========= UI ========= */
   return (
@@ -206,31 +255,7 @@ export default function StaffPage() {
         </div>
 
         <div className="mt-4">
-          <button className="btn" onClick={async () => {
-            if (boScope === "ROOM" && !boRoomId) {
-              alert("Pick a room for a room-specific blackout.");
-              return;
-            }
-            const supabase = getSupabase();
-            const payload = {
-              date: boDate,
-              scope: boScope,
-              room_id: boScope === "ROOM" ? boRoomId : null,
-              is_all_day: boAllDay,
-              start_time: boAllDay ? null : `${boStart}:00`,
-              end_time: boAllDay ? null : `${boEnd}:00`,
-              note: boNote || null,
-            };
-            const { error, data } = await supabase
-              .from("Blackouts")
-              .insert(payload)
-              .select("id,date,scope,room_id,is_all_day,start_time,end_time,note");
-            if (error) { alert("Add blackout failed: " + error.message); return; }
-            const appended = (data ?? []) as Blackout[];
-            const withinMonth = appended.filter((b) => b.date >= monthStartISO && b.date <= monthEndISO);
-            if (withinMonth.length > 0) setBlackouts((prev) => [...prev, ...withinMonth]);
-            setBoNote("");
-          }}>
+          <button className="btn" onClick={addBlackout}>
             Add Blackout
           </button>
         </div>
