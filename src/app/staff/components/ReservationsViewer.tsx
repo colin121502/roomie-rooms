@@ -43,6 +43,59 @@ function firstOf<T>(val: T | T[] | null | undefined): T | null {
   return val ?? null;
 }
 
+/** ---------- Small Cancel button component ---------- */
+function CancelButton({
+  id,
+  onDone,
+}: {
+  id: string;
+  onDone: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [reason, setReason] = useState("");
+
+  const handleCancel = async () => {
+    if (!confirm("Cancel this reservation?")) return;
+    setLoading(true);
+    const supabase = getSupabase();
+
+    const { error } = await supabase
+      .from("Reservations")
+      .update({
+        status: "CANCELED",
+        canceled_at: new Date().toISOString(),
+        cancel_reason: reason || null,
+        // canceled_by: "STAFF_USER_ID_PLACEHOLDER" // set when auth is ready
+      })
+      .eq("id", id);
+
+    setLoading(false);
+    if (error) {
+      alert("Cancel failed: " + error.message);
+    } else {
+      onDone(); // refresh list
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        className="input !h-8 text-xs"
+        placeholder="Reason (optional)"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <button
+        onClick={handleCancel}
+        disabled={loading}
+        className="rounded bg-red-600 px-2 py-1 text-white text-xs hover:bg-red-700 disabled:opacity-50"
+      >
+        {loading ? "Canceling…" : "Cancel"}
+      </button>
+    </div>
+  );
+}
+
 /** ---------- Component ---------- */
 export default function ReservationsViewer() {
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
@@ -50,46 +103,47 @@ export default function ReservationsViewer() {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // single fetch function (used on mount/date change and after cancel)
+  const fetchRows = async (date: string) => {
+    setLoading(true);
+    setErr(null);
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from("Reservations")
+      .select("id,date,status,user_id, Rooms(name), TimeSlots(starts_at,ends_at)")
+      .eq("date", date)
+      .neq("status", "CANCELED") // hide already-canceled rows
+      .order("timeslot_id", { ascending: true });
+
+    if (error) {
+      setErr(error.message);
+      setRows([]);
+    } else {
+      const list = (data ?? []) as ReadonlyArray<ApiRow>;
+      const normalized: Row[] = list.map((r) => ({
+        id: r.id,
+        date: r.date,
+        status: r.status,
+        user_id: r.user_id,
+        Rooms: firstOf(r.Rooms),
+        TimeSlots: firstOf(r.TimeSlots),
+      }));
+      setRows(normalized);
+    }
+    setLoading(false);
+  };
+
   // Fetch reservations for the chosen date
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setErr(null);
-      const supabase = getSupabase();
-
-      const { data, error } = await supabase
-        .from("Reservations")
-        .select(
-          "id,date,status,user_id, Rooms(name), TimeSlots(starts_at,ends_at)"
-        )
-        .eq("date", selectedDate)
-        .neq("status", "CANCELED")
-        .order("timeslot_id", { ascending: true });
-
-      if (error) {
-        setErr(error.message);
-        setRows([]);
-      } else {
-        const list = (data ?? []) as ReadonlyArray<ApiRow>;
-        const normalized: Row[] = list.map((r) => ({
-          id: r.id,
-          date: r.date,
-          status: r.status,
-          user_id: r.user_id,
-          Rooms: firstOf(r.Rooms),
-          TimeSlots: firstOf(r.TimeSlots),
-        }));
-        setRows(normalized);
-      }
-
-      setLoading(false);
-    };
-
-    load();
+    fetchRows(selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
-  const prevDay = () => setSelectedDate(toISODate(addDays(new Date(selectedDate), -1)));
-  const nextDay = () => setSelectedDate(toISODate(addDays(new Date(selectedDate), 1)));
+  const prevDay = () =>
+    setSelectedDate(toISODate(addDays(new Date(selectedDate), -1)));
+  const nextDay = () =>
+    setSelectedDate(toISODate(addDays(new Date(selectedDate), 1)));
 
   /** ---------- UI ---------- */
   return (
@@ -98,7 +152,7 @@ export default function ReservationsViewer() {
         <div>
           <h2 className="heading text-lg">View Reservations</h2>
           <p className="muted text-sm">
-            Choose any date to view all reservations, even if none exist.
+            Choose any date to view all reservations.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -132,6 +186,7 @@ export default function ReservationsViewer() {
                 <th className="th">Room</th>
                 <th className="th">Status</th>
                 <th className="th">User</th>
+                <th className="th">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -148,6 +203,13 @@ export default function ReservationsViewer() {
                   <td className="td">{r.status}</td>
                   <td className="td">
                     <span className="muted text-xs">{r.user_id}</span>
+                  </td>
+                  <td className="td">
+                    {r.status !== "CANCELED" ? (
+                      <CancelButton id={r.id} onDone={() => fetchRows(selectedDate)} />
+                    ) : (
+                      <span className="muted text-xs">Canceled</span>
+                    )}
                   </td>
                 </tr>
               ))}

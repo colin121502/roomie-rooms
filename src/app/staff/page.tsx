@@ -4,32 +4,10 @@ export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
 import { getSupabase } from "@/lib/supabaseClient";
+import ReservationsViewer from "./components/ReservationsViewer";
 
 /* ========= Types ========= */
 type Room = { id: string; name: string };
-
-type Reservation = {
-  id: string;
-  date: string; // 'YYYY-MM-DD'
-  status: string;
-  room_id: string;
-  timeslot_id: string;
-  Rooms: { name: string } | null;
-  TimeSlots: { starts_at: string; ends_at: string } | null;
-};
-
-type ApiReservation = {
-  id: string;
-  date: string;
-  status: string;
-  room_id: string;
-  timeslot_id: string;
-  Rooms: { name: string } | { name: string }[] | null;
-  TimeSlots:
-    | { starts_at: string; ends_at: string }
-    | { starts_at: string; ends_at: string }[]
-    | null;
-};
 
 type Blackout = {
   id: string;
@@ -45,21 +23,15 @@ type Blackout = {
 /* ========= Small helpers ========= */
 const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
-const addDays = (d: Date, n: number) => {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-};
 const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 const lastOfMonth  = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
-const todayISO = () => toISODate(new Date());
 
 /** Mon→Sun month grid (6 rows, 7 cols) including leading/trailing days */
+function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function buildMonthGrid(target: Date) {
   const start = firstOfMonth(target);
   const startWeekday = (start.getDay() + 6) % 7; // 0=Mon ... 6=Sun
   const gridStart = addDays(start, -startWeekday);
-
   const days: { date: Date; inMonth: boolean }[] = [];
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i);
@@ -68,21 +40,10 @@ function buildMonthGrid(target: Date) {
   return days;
 }
 
-/** Pick first item if array, else the value; allow null/undefined */
-function firstOf<T>(val: T | T[] | null | undefined): T | null {
-  if (Array.isArray(val)) return val[0] ?? null;
-  return val ?? null;
-}
-
 /* ========= Component ========= */
 export default function StaffPage() {
-  /* Rooms */
+  /* Rooms (for blackout UI labels) */
   const [rooms, setRooms] = useState<Room[]>([]);
-
-  /* Reservations viewer */
-  const [resDate, setResDate] = useState<string>(todayISO());
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [loadingRes, setLoadingRes] = useState<boolean>(true);
 
   /* Blackouts & calendar */
   const [monthCursor, setMonthCursor] = useState<Date>(firstOfMonth(new Date()));
@@ -91,7 +52,7 @@ export default function StaffPage() {
   const [err, setErr] = useState<string | null>(null);
 
   /* Add-blackout form */
-  const [boDate, setBoDate] = useState<string>(todayISO());
+  const [boDate, setBoDate] = useState<string>(toISODate(new Date()));
   const [boScope, setBoScope] = useState<"GLOBAL" | "ROOM">("GLOBAL");
   const [boRoomId, setBoRoomId] = useState<string>("");
   const [boAllDay, setBoAllDay] = useState(true);
@@ -123,39 +84,6 @@ export default function StaffPage() {
     run();
   }, []);
 
-  /* Load reservations for selected date */
-  useEffect(() => {
-    const run = async () => {
-      setLoadingRes(true);
-      const supabase = getSupabase();
-      const { data, error } = await supabase
-        .from("Reservations")
-        .select("id,date,status,room_id,timeslot_id, Rooms(name), TimeSlots(starts_at,ends_at)")
-        .eq("date", resDate)
-        .neq("status", "CANCELED")
-        .order("timeslot_id", { ascending: true });
-
-      if (error) {
-        console.error(error.message);
-        setReservations([]);
-      } else {
-        const list = (data ?? []) as ReadonlyArray<ApiReservation>;
-        const normalized: Reservation[] = list.map((r) => ({
-          id: r.id,
-          date: r.date,
-          status: r.status,
-          room_id: r.room_id,
-          timeslot_id: r.timeslot_id,
-          Rooms: firstOf(r.Rooms),
-          TimeSlots: firstOf(r.TimeSlots),
-        }));
-        setReservations(normalized);
-      }
-      setLoadingRes(false);
-    };
-    run();
-  }, [resDate]);
-
   /* Load month blackouts */
   useEffect(() => {
     const run = async () => {
@@ -177,120 +105,13 @@ export default function StaffPage() {
     run();
   }, [monthStartISO, monthEndISO]);
 
-  /* Handlers */
-  const prevDay = () => setResDate(toISODate(addDays(new Date(resDate), -1)));
-  const nextDay = () => setResDate(toISODate(addDays(new Date(resDate), 1)));
-
-  async function addBlackout() {
-    if (boScope === "ROOM" && !boRoomId) {
-      alert("Pick a room for a room-specific blackout.");
-      return;
-    }
-
-    const supabase = getSupabase();
-    const payload = {
-      date: boDate,
-      scope: boScope,
-      room_id: boScope === "ROOM" ? boRoomId : null,
-      is_all_day: boAllDay,
-      start_time: boAllDay ? null : `${boStart}:00`,
-      end_time: boAllDay ? null : `${boEnd}:00`,
-      note: boNote || null,
-    };
-
-    const { error, data } = await supabase
-      .from("Blackouts")
-      .insert(payload)
-      .select("id,date,scope,room_id,is_all_day,start_time,end_time,note");
-
-    if (error) {
-      alert("Add blackout failed: " + error.message);
-      return;
-    }
-
-    // If the new blackout is in the visible month, append; else ignore (will appear when that month is viewed)
-    const appended = (data ?? []) as Blackout[];
-    const withinMonth = appended.filter((b) => b.date >= monthStartISO && b.date <= monthEndISO);
-    if (withinMonth.length > 0) {
-      setBlackouts((prev) => [...prev, ...withinMonth]);
-    }
-
-    setBoNote("");
-  }
-
-  async function removeBlackout(id: string) {
-    const supabase = getSupabase();
-    const { error } = await supabase.from("Blackouts").delete().eq("id", id);
-    if (error) {
-      alert("Remove failed: " + error.message);
-      return;
-    }
-    setBlackouts((prev) => prev.filter((b) => b.id !== id));
-  }
-
   /* ========= UI ========= */
   return (
     <div className="p-6 mx-auto max-w-6xl space-y-8">
       <h1 className="heading text-2xl">Staff Dashboard</h1>
 
-      {/* ===== View Reservations (by date) ===== */}
-      <section className="card">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-3">
-          <div>
-            <h2 className="heading text-lg">View Reservations</h2>
-            <p className="muted text-sm">
-              Choose any date to view all reservations, even if none exist.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="btn-outline text-sm" onClick={prevDay}>
-              ← Prev day
-            </button>
-            <input
-              type="date"
-              value={resDate}
-              onChange={(e) => setResDate(e.target.value)}
-              className="input w-[12rem]"
-            />
-            <button className="btn-outline text-sm" onClick={nextDay}>
-              Next day →
-            </button>
-          </div>
-        </div>
-
-        {loadingRes ? (
-          <div className="muted">Loading…</div>
-        ) : reservations.length === 0 ? (
-          <div className="muted">No reservations on {resDate}.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th className="th">Time</th>
-                  <th className="th">Room</th>
-                  <th className="th">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reservations.map((r) => (
-                  <tr key={r.id}>
-                    <td className="td">
-                      {r.TimeSlots
-                        ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(
-                            r.TimeSlots.ends_at
-                          )}`
-                        : "—"}
-                    </td>
-                    <td className="td">{r.Rooms?.name ?? "Room"}</td>
-                    <td className="td">{r.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {/* ===== View Reservations (by date) with Cancel actions ===== */}
+      <ReservationsViewer />
 
       {/* ===== Add Blackout ===== */}
       <section className="card">
@@ -385,7 +206,31 @@ export default function StaffPage() {
         </div>
 
         <div className="mt-4">
-          <button className="btn" onClick={addBlackout}>
+          <button className="btn" onClick={async () => {
+            if (boScope === "ROOM" && !boRoomId) {
+              alert("Pick a room for a room-specific blackout.");
+              return;
+            }
+            const supabase = getSupabase();
+            const payload = {
+              date: boDate,
+              scope: boScope,
+              room_id: boScope === "ROOM" ? boRoomId : null,
+              is_all_day: boAllDay,
+              start_time: boAllDay ? null : `${boStart}:00`,
+              end_time: boAllDay ? null : `${boEnd}:00`,
+              note: boNote || null,
+            };
+            const { error, data } = await supabase
+              .from("Blackouts")
+              .insert(payload)
+              .select("id,date,scope,room_id,is_all_day,start_time,end_time,note");
+            if (error) { alert("Add blackout failed: " + error.message); return; }
+            const appended = (data ?? []) as Blackout[];
+            const withinMonth = appended.filter((b) => b.date >= monthStartISO && b.date <= monthEndISO);
+            if (withinMonth.length > 0) setBlackouts((prev) => [...prev, ...withinMonth]);
+            setBoNote("");
+          }}>
             Add Blackout
           </button>
         </div>
@@ -413,10 +258,7 @@ export default function StaffPage() {
               ← Prev
             </button>
             <div className="muted">
-              {monthCursor.toLocaleString(undefined, {
-                month: "long",
-                year: "numeric",
-              })}
+              {monthCursor.toLocaleString(undefined, { month: "long", year: "numeric" })}
             </div>
             <button
               className="btn-outline text-sm"
@@ -454,13 +296,8 @@ export default function StaffPage() {
               return (
                 <div
                   key={iso}
-                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${
-                    inMonth ? "" : "opacity-40"
-                  }`}
-                  style={{
-                    background: "var(--panel)",
-                    borderColor: "var(--panel-border)",
-                  }}
+                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${inMonth ? "" : "opacity-40"}`}
+                  style={{ background: "var(--panel)", borderColor: "var(--panel-border)" }}
                 >
                   <div className="text-sm font-medium">{date.getDate()}</div>
 
@@ -477,17 +314,11 @@ export default function StaffPage() {
                       <div key={b.id} className="flex items-start gap-2">
                         <button
                           className="w-full text-left rounded-md px-2 py-1 text-xs leading-5 whitespace-normal break-words"
-                          style={{
-                            background:
-                              "color-mix(in oklab, var(--foreground) 10%, transparent)",
-                          }}
-                          title={`${labelScope} • ${timeLabel}${
-                            b.note ? ` — ${b.note}` : ""
-                          }`}
+                          style={{ background: "color-mix(in oklab, var(--foreground) 10%, transparent)" }}
+                          title={`${labelScope} • ${timeLabel}${b.note ? ` — ${b.note}` : ""}`}
                         >
                           <div className="whitespace-normal break-words">
-                            <strong className="font-medium">{labelScope}</strong>{" "}
-                            • {timeLabel}
+                            <strong className="font-medium">{labelScope}</strong> • {timeLabel}
                             {b.note ? ` — ${b.note}` : ""}
                           </div>
                         </button>
