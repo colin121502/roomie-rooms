@@ -1,8 +1,6 @@
 "use client";
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabase } from "@/lib/supabaseClient";
 
 /** ---------- Types ---------- */
@@ -15,7 +13,6 @@ type Row = {
   TimeSlots: { starts_at: string; ends_at: string } | null;
 };
 
-// What Supabase may actually return (relations can be arrays or single objects)
 type ApiRow = {
   id: string;
   date: string;
@@ -37,7 +34,6 @@ const addDays = (d: Date, n: number) => {
   return x;
 };
 const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
-
 function firstOf<T>(val: T | T[] | null | undefined): T | null {
   if (Array.isArray(val)) return val[0] ?? null;
   return val ?? null;
@@ -65,7 +61,6 @@ function CancelButton({
         status: "CANCELED",
         canceled_at: new Date().toISOString(),
         cancel_reason: reason || null,
-        // canceled_by: "STAFF_USER_ID_PLACEHOLDER" // set when auth is ready
       })
       .eq("id", id);
 
@@ -103,17 +98,19 @@ export default function ReservationsViewer() {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // Create client once
+  const supabase = useMemo(() => getSupabase(), []);
+
   // single fetch function (used on mount/date change and after cancel)
-  const fetchRows = async (date: string) => {
+  const fetchRows = useCallback(async () => {
     setLoading(true);
     setErr(null);
-    const supabase = getSupabase();
 
     const { data, error } = await supabase
       .from("Reservations")
       .select("id,date,status,user_id, Rooms(name), TimeSlots(starts_at,ends_at)")
-      .eq("date", date)
-      .neq("status", "CANCELED") // hide already-canceled rows
+      .eq("date", selectedDate)
+      .neq("status", "CANCELED")
       .order("timeslot_id", { ascending: true });
 
     if (error) {
@@ -132,13 +129,12 @@ export default function ReservationsViewer() {
       setRows(normalized);
     }
     setLoading(false);
-  };
+  }, [selectedDate, supabase]);
 
   // Fetch reservations for the chosen date
   useEffect(() => {
-    fetchRows(selectedDate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+    fetchRows();
+  }, [fetchRows]);
 
   const prevDay = () =>
     setSelectedDate(toISODate(addDays(new Date(selectedDate), -1)));
@@ -151,9 +147,7 @@ export default function ReservationsViewer() {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-3">
         <div>
           <h2 className="heading text-lg">View Reservations</h2>
-          <p className="muted text-sm">
-            Choose any date to view all reservations.
-          </p>
+          <p className="muted text-sm">Choose any date to view all reservations.</p>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn-outline text-sm" onClick={prevDay}>
@@ -194,9 +188,7 @@ export default function ReservationsViewer() {
                 <tr key={r.id}>
                   <td className="td">
                     {r.TimeSlots
-                      ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(
-                          r.TimeSlots.ends_at
-                        )}`
+                      ? `${fmtTime(r.TimeSlots.starts_at)}–${fmtTime(r.TimeSlots.ends_at)}`
                       : "—"}
                   </td>
                   <td className="td">{r.Rooms?.name ?? "Room"}</td>
@@ -206,7 +198,7 @@ export default function ReservationsViewer() {
                   </td>
                   <td className="td">
                     {r.status !== "CANCELED" ? (
-                      <CancelButton id={r.id} onDone={() => fetchRows(selectedDate)} />
+                      <CancelButton id={r.id} onDone={fetchRows} />
                     ) : (
                       <span className="muted text-xs">Canceled</span>
                     )}
