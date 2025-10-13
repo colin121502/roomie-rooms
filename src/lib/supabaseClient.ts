@@ -1,17 +1,35 @@
-// src/lib/supabaseClient.ts
-"use client";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+// lib/supabaseClient.ts
+import { createClient } from "@supabase/supabase-js";
+import {
+  createServerClient,
+  parseCookieHeader,
+  serializeCookie,
+} from "@supabase/ssr";
+import type { CookieOptions } from "@supabase/ssr";
 
-let client: SupabaseClient | null = null;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export function getSupabase(): SupabaseClient {
-  if (!client) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) {
-      throw new Error("Supabase URL/key missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
-    }
-    client = createClient(url, key);
-  }
-  return client;
-}
+// ✅ For browser/client components
+export const getBrowserClient = () => createClient(supabaseUrl, supabaseKey);
+
+// ✅ Alias so older files using "getSupabase" won't break
+export const getSupabase = getBrowserClient;
+
+// ✅ For server components or middleware
+export const getServerClient = (headers: Headers) => {
+  const cookiesIn = parseCookieHeader(headers.get("cookie") ?? "");
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      get(name: string) {
+        return cookiesIn[name];
+      },
+      set(name: string, value: string, options: CookieOptions) {
+        // Middleware handles cookie setting automatically
+      },
+      remove(name: string, options: CookieOptions) {
+        // No-op for now
+      },
+    },
+  });
+};
