@@ -7,21 +7,21 @@ import type { CookieOptions } from "@supabase/ssr";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Browser client
+// ✅ Browser client
 export const getBrowserClient = () => createClient(supabaseUrl, supabaseKey);
 
-// Back-compat alias
+// ✅ Backward compatibility alias
 export const getSupabase = getBrowserClient;
 
-// Server client (works with Next.js 15 headers())
-export const getServerClient = (hdrs: Headers | ReadonlyHeaders) => {
+// ✅ Server client (Next.js 15+ safe)
+export const getServerClient = (hdrs: any) => {
   const cookiesIn = parseCookieHeader(hdrs.get("cookie") ?? "");
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       get(name: string) {
         return cookiesIn[name];
       },
-      // no-ops here; middleware sets cookies on the response
+      // no-ops here; middleware handles setting cookies
       set(_name: string, _value: string, _options?: CookieOptions) {},
       remove(_name: string, _options?: CookieOptions) {},
     },
