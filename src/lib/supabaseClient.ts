@@ -1,22 +1,18 @@
 // lib/supabaseClient.ts
 import { createClient } from "@supabase/supabase-js";
-import {
-  createServerClient,
-  parseCookieHeader,
-  serializeCookie,
-} from "@supabase/ssr";
+import { createServerClient, parseCookieHeader } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-// ✅ For browser/client components
+// Browser client
 export const getBrowserClient = () => createClient(supabaseUrl, supabaseKey);
 
-// ✅ Alias so older files using "getSupabase" won't break
+// Alias to keep older imports working
 export const getSupabase = getBrowserClient;
 
-// ✅ For server components or middleware
+// Server client (for Server Components)
 export const getServerClient = (headers: Headers) => {
   const cookiesIn = parseCookieHeader(headers.get("cookie") ?? "");
   return createServerClient(supabaseUrl, supabaseKey, {
@@ -24,12 +20,9 @@ export const getServerClient = (headers: Headers) => {
       get(name: string) {
         return cookiesIn[name];
       },
-      set(name: string, value: string, options: CookieOptions) {
-        // Middleware handles cookie setting automatically
-      },
-      remove(name: string, options: CookieOptions) {
-        // No-op for now
-      },
+      // no-ops here; middleware actually sets cookies on the response
+      set(_name: string, _value: string, _options?: CookieOptions) {},
+      remove(_name: string, _options?: CookieOptions) {},
     },
   });
 };
