@@ -4,7 +4,7 @@ import { getServerClient } from "@/lib/supabaseClient";
 import AccountClient from "./AccountClient";
 
 export default async function AccountPage() {
-  const supabase = getServerClient(headers());
+  const supabase = getServerClient(await headers());
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session) {
