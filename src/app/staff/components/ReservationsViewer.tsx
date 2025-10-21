@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getSupabase } from "@/lib/supabaseClient";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 
 /** ---------- Types ---------- */
 type Row = {
@@ -36,24 +36,18 @@ const addDays = (d: Date, n: number) => {
 const fmtTime = (t?: string | null) => (t ? t.slice(0, 5) : "");
 function firstOf<T>(val: T | T[] | null | undefined): T | null {
   if (Array.isArray(val)) return val[0] ?? null;
-  return val ?? null;
+  return (val as T) ?? null;
 }
 
 /** ---------- Small Cancel button component ---------- */
-function CancelButton({
-  id,
-  onDone,
-}: {
-  id: string;
-  onDone: () => void;
-}) {
+function CancelButton({ id, onDone }: { id: string; onDone: () => void }) {
   const [loading, setLoading] = useState(false);
   const [reason, setReason] = useState("");
 
   const handleCancel = async () => {
     if (!confirm("Cancel this reservation?")) return;
     setLoading(true);
-    const supabase = getSupabase();
+    const supabase = getBrowserClient();
 
     const { error } = await supabase
       .from("Reservations")
@@ -98,8 +92,8 @@ export default function ReservationsViewer() {
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Create client once
-  const supabase = useMemo(() => getSupabase(), []);
+  // Create client once (browser)
+  const supabase = useMemo(() => getBrowserClient(), []);
 
   // single fetch function (used on mount/date change and after cancel)
   const fetchRows = useCallback(async () => {

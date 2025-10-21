@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
-import { getSupabase } from "@/lib/supabaseClient";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 import ReservationsViewer from "./components/ReservationsViewer";
 
 /* ========= Types ========= */
@@ -47,6 +47,40 @@ function buildMonthGrid(target: Date) {
 
 /* ========= Component ========= */
 export default function StaffPage() {
+  const supabase = getBrowserClient();
+
+  /* Auth/role gate */
+  const [roleChecked, setRoleChecked] = useState(false);
+  useEffect(() => {
+    const check = async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+      if (!user) {
+        // not logged in -> go login then come back
+        const qs = new URLSearchParams({ redirect: "/staff" }).toString();
+        window.location.href = `/login?${qs}`;
+        return;
+      }
+
+      // read role from profiles
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+
+      const role = (profile?.role as string) ?? "user";
+      if (role !== "staff" && role !== "admin") {
+        // logged in but not staff -> bounce to account
+        window.location.href = "/account";
+        return;
+      }
+
+      setRoleChecked(true);
+    };
+    check();
+  }, [supabase]);
+
   /* Rooms (for blackout UI labels) */
   const [rooms, setRooms] = useState<Room[]>([]);
 
@@ -79,22 +113,22 @@ export default function StaffPage() {
     return map;
   }, [blackouts]);
 
-  /* Load Rooms once */
+  /* Load Rooms once (after role check) */
   useEffect(() => {
+    if (!roleChecked) return;
     const run = async () => {
-      const supabase = getSupabase();
       const { data } = await supabase.from("Rooms").select("id,name").order("name");
       setRooms((data ?? []) as Room[]);
     };
     run();
-  }, []);
+  }, [roleChecked, supabase]);
 
-  /* Load month blackouts */
+  /* Load month blackouts (after role check) */
   useEffect(() => {
+    if (!roleChecked) return;
     const run = async () => {
       setLoadingMonth(true);
       setErr(null);
-      const supabase = getSupabase();
 
       const { data, error } = await supabase
         .from("Blackouts")
@@ -108,7 +142,7 @@ export default function StaffPage() {
       setLoadingMonth(false);
     };
     run();
-  }, [monthStartISO, monthEndISO]);
+  }, [roleChecked, monthStartISO, monthEndISO, supabase]);
 
   /* Handlers */
   async function addBlackout() {
@@ -117,7 +151,6 @@ export default function StaffPage() {
       return;
     }
 
-    const supabase = getSupabase();
     const payload = {
       date: boDate,
       scope: boScope,
@@ -145,7 +178,6 @@ export default function StaffPage() {
   }
 
   async function removeBlackout(id: string) {
-    const supabase = getSupabase();
     const { error } = await supabase.from("Blackouts").delete().eq("id", id);
     if (error) {
       alert("Remove failed: " + error.message);
@@ -155,6 +187,14 @@ export default function StaffPage() {
   }
 
   /* ========= UI ========= */
+  if (!roleChecked) {
+    return (
+      <div className="p-6 mx-auto max-w-6xl">
+        <div className="muted">Checking permissions…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 mx-auto max-w-6xl space-y-8">
       <h1 className="heading text-2xl">Staff Dashboard</h1>
@@ -270,13 +310,7 @@ export default function StaffPage() {
               className="btn-outline text-sm"
               onClick={() =>
                 setMonthCursor(
-                  firstOfMonth(
-                    new Date(
-                      monthCursor.getFullYear(),
-                      monthCursor.getMonth() - 1,
-                      1
-                    )
-                  )
+                  firstOfMonth(new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1))
                 )
               }
             >
@@ -289,13 +323,7 @@ export default function StaffPage() {
               className="btn-outline text-sm"
               onClick={() =>
                 setMonthCursor(
-                  firstOfMonth(
-                    new Date(
-                      monthCursor.getFullYear(),
-                      monthCursor.getMonth() + 1,
-                      1
-                    )
-                  )
+                  firstOfMonth(new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1))
                 )
               }
             >
@@ -321,7 +349,9 @@ export default function StaffPage() {
               return (
                 <div
                   key={iso}
-                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${inMonth ? "" : "opacity-40"}`}
+                  className={`rounded-lg border p-2 min-h-28 flex flex-col gap-1 ${
+                    inMonth ? "" : "opacity-40"
+                  }`}
                   style={{ background: "var(--panel)", borderColor: "var(--panel-border)" }}
                 >
                   <div className="text-sm font-medium">{date.getDate()}</div>
@@ -339,11 +369,17 @@ export default function StaffPage() {
                       <div key={b.id} className="flex items-start gap-2">
                         <button
                           className="w-full text-left rounded-md px-2 py-1 text-xs leading-5 whitespace-normal break-words"
-                          style={{ background: "color-mix(in oklab, var(--foreground) 10%, transparent)" }}
-                          title={`${labelScope} • ${timeLabel}${b.note ? ` — ${b.note}` : ""}`}
+                          style={{
+                            background:
+                              "color-mix(in oklab, var(--foreground) 10%, transparent)",
+                          }}
+                          title={`${labelScope} • ${timeLabel}${
+                            b.note ? ` — ${b.note}` : ""
+                          }`}
                         >
                           <div className="whitespace-normal break-words">
-                            <strong className="font-medium">{labelScope}</strong> • {timeLabel}
+                            <strong className="font-medium">{labelScope}</strong>{" "}
+                            • {timeLabel}
                             {b.note ? ` — ${b.note}` : ""}
                           </div>
                         </button>

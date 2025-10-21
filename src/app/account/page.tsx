@@ -1,14 +1,15 @@
-// app/account/page.tsx
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
-
-import { headers } from "next/headers";
+// src/app/account/page.tsx
 import { redirect } from "next/navigation";
-import { getServerClient } from "@/lib/supabaseClient";
+import { getServerClient } from "@/lib/supabaseServer";
 import AccountClient from "./AccountClient";
 
+export const revalidate = 0;
+export const dynamic = "force-dynamic";
+
 export default async function AccountPage() {
-  const supabase = getServerClient(await headers());
+  const supabase = getServerClient();
+
+  // Require login
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -17,5 +18,39 @@ export default async function AccountPage() {
     redirect(`/login?redirect=/account`);
   }
 
-  return <AccountClient email={session.user.email ?? ""} />;
+  const uid = session.user.id;
+  const email = session.user.email ?? "";
+
+  // Load profile (full_name, role)
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("full_name, role")
+    .eq("id", uid)
+    .maybeSingle();
+
+  const fullName = profileRow?.full_name ?? session.user.user_metadata?.full_name ?? "";
+  const role = (profileRow?.role ??
+    session.user.user_metadata?.role ??
+    "user") as string;
+
+  // Reservation count (not canceled)
+  const { count: reservationCount = 0 } = await supabase
+    .from("Reservations")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", uid)
+    .neq("status", "CANCELED");
+
+  return (
+    <div className="mx-auto max-w-3xl p-6">
+      <h1 className="text-3xl font-bold mb-6">My Account</h1>
+
+      <AccountClient
+        uid={uid}
+        email={email}
+        fullName={fullName}
+        role={role}
+        reservationCount={reservationCount}
+      />
+    </div>
+  );
 }

@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { getBrowserClient } from "@/lib/supabaseClient";
+import { useRouter } from "next/navigation";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 
 export default function LoginPage() {
   const supabase = getBrowserClient();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -14,20 +16,23 @@ export default function LoginPage() {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setErrorMsg(error.message);
+        return;
+      }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+      // Force-sync session to cookies for SSR:
+      await supabase.auth.getSession();
 
-    if (error) {
-      setErrorMsg(error.message);
-      setLoading(false);
-    } else {
-      // redirect to intended page or /account
+      // Go to intended page (or /account), then refresh SSR:
       const params = new URLSearchParams(window.location.search);
       const redirect = params.get("redirect") || "/account";
-      window.location.href = redirect;
+      router.push(redirect);
+      router.refresh();
+    } finally {
+      setLoading(false);
     }
   }
 

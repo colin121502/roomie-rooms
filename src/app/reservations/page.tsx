@@ -2,7 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
-import { getSupabase } from "@/lib/supabaseClient";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 
 type Row = {
   id: string;
@@ -11,8 +11,6 @@ type Row = {
   Rooms: { name: string } | null;
   TimeSlots: { starts_at: string; ends_at: string } | null;
 };
-
-const FAKE_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 export default function MyReservationsPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -25,31 +23,53 @@ export default function MyReservationsPage() {
       setLoading(true);
       setError(null);
 
-      const supabase = getSupabase();
+      const supabase = getBrowserClient();
+
+      // 1) Get the current user
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+
+      // If not logged in, bounce to login and keep deep link
+      if (!user) {
+        const qs = new URLSearchParams({ redirect: "/reservations" }).toString();
+        window.location.href = `/login?${qs}`;
+        return;
+      }
+
+      // 2) Query this user's reservations
       const { data, error } = await supabase
-        .from("Reservations")
-        .select("id, date, status, Rooms(name), TimeSlots(starts_at, ends_at)")
-        .eq("user_id", FAKE_USER_ID) // swap to auth later
+        .from("Reservations") // adjust to your exact table name/case
+        .select(
+          "id, date, status, Rooms(name), TimeSlots(starts_at, ends_at)"
+        )
+        .eq("user_id", user.id)
         .neq("status", "CANCELED")
         .order("date", { ascending: true })
         .returns<Row[]>();
 
       if (error) setError(error.message);
       else setRows(data ?? []);
+
       setLoading(false);
     };
+
     load();
   }, []);
 
   const cancelReservation = async (id: string) => {
     setCancelingId(id);
-    const supabase = getSupabase();
+    const supabase = getBrowserClient();
+
     const { error } = await supabase
       .from("Reservations")
       .update({ status: "CANCELED" })
       .eq("id", id);
-    if (error) alert("Cancel failed: " + error.message);
-    else setRows((prev) => prev.filter((r) => r.id !== id));
+
+    if (error) {
+      alert("Cancel failed: " + error.message);
+    } else {
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    }
     setCancelingId(null);
   };
 
@@ -76,10 +96,7 @@ export default function MyReservationsPage() {
       ) : (
         <ul className="space-y-3">
           {rows.map((r) => (
-            <li
-              key={r.id}
-              className="card p-4 flex items-center justify-between"
-            >
+            <li key={r.id} className="card p-4 flex items-center justify-between">
               <div className="space-y-1">
                 <div className="font-medium text-gray-900 dark:text-gray-100">
                   {r.Rooms?.name ?? "Room"}

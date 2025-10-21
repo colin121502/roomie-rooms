@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
-import { getSupabase } from "@/lib/supabaseClient";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 
 /* ===== Types ===== */
 type Room = { id: string; name: string };
@@ -13,8 +13,6 @@ type Blackout = {
   date: string; scope: "GLOBAL" | "ROOM"; room_id: string | null;
   is_all_day: boolean; start_time: string | null; end_time: string | null; note: string | null;
 };
-
-const FAKE_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 /* ===== Helpers ===== */
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -29,6 +27,8 @@ export default function BookPage() {
   const [date, setDate] = useState<string>(todayISO());
   const [roomId, setRoomId] = useState<string>("");
 
+  const [userId, setUserId] = useState<string | null>(null);
+
   const [dayReservations, setDayReservations] = useState<Reservation[]>([]);
   const [dayBlackouts, setDayBlackouts] = useState<Blackout[]>([]);
 
@@ -36,12 +36,24 @@ export default function BookPage() {
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  /* ----- initial load: rooms + slots ----- */
+  /* ----- auth check + initial load ----- */
   useEffect(() => {
-    const loadStatic = async () => {
+    const init = async () => {
+      const supabase = getBrowserClient();
+
+      // ensure logged in; deep-link back after login
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+      if (!user) {
+        const qs = new URLSearchParams({ redirect: "/book" }).toString();
+        window.location.href = `/login?${qs}`;
+        return;
+      }
+      setUserId(user.id);
+
+      // static data
       setLoadingStatic(true);
       setErrorMsg(null);
-      const supabase = getSupabase();
 
       const [rRooms, rSlots] = await Promise.all([
         supabase.from("Rooms").select("id,name").order("name"),
@@ -56,13 +68,13 @@ export default function BookPage() {
 
       setLoadingStatic(false);
     };
-    loadStatic();
+    init();
   }, []);
 
   /* ----- load reservations for chosen day ----- */
   useEffect(() => {
     const run = async () => {
-      const supabase = getSupabase();
+      const supabase = getBrowserClient();
       const { data, error } = await supabase
         .from("Reservations")
         .select("id,room_id,timeslot_id,date,status")
@@ -81,7 +93,7 @@ export default function BookPage() {
   /* ----- load blackouts for chosen day ----- */
   useEffect(() => {
     const run = async () => {
-      const supabase = getSupabase();
+      const supabase = getBrowserClient();
       const { data, error } = await supabase
         .from("Blackouts")
         .select("date,scope,room_id,is_all_day,start_time,end_time,note")
@@ -127,9 +139,10 @@ export default function BookPage() {
     if (allDay) {
       return {
         kind: "all-day" as const,
-        text: allDay.scope === "GLOBAL"
-          ? `All rooms are blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`
-          : `This room is blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`,
+        text:
+          allDay.scope === "GLOBAL"
+            ? `All rooms are blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`
+            : `This room is blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`,
       };
     }
 
@@ -148,11 +161,21 @@ export default function BookPage() {
       alert("Pick a room first.");
       return;
     }
+    if (!userId) {
+      const qs = new URLSearchParams({ redirect: "/book" }).toString();
+      window.location.href = `/login?${qs}`;
+      return;
+    }
+
     setBookingId(timeslotId);
 
-    const supabase = getSupabase();
+    const supabase = getBrowserClient();
     const { error } = await supabase.from("Reservations").insert({
-      user_id: FAKE_USER_ID, room_id: roomId, timeslot_id: timeslotId, date, status: "BOOKED",
+      user_id: userId,
+      room_id: roomId,
+      timeslot_id: timeslotId,
+      date,
+      status: "BOOKED",
     });
 
     if (error) {
@@ -190,8 +213,14 @@ export default function BookPage() {
               <div>
                 <label className="block text-sm mb-1 muted">Room</label>
                 <select value={roomId} onChange={(e) => setRoomId(e.target.value)} className="select">
-                  <option value="" disabled>Select a room…</option>
-                  {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  <option value="" disabled>
+                    Select a room…
+                  </option>
+                  {rooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -200,9 +229,12 @@ export default function BookPage() {
             {roomId && blackoutBanner && (
               <div
                 className="mt-3 rounded-lg px-3 py-2 text-sm"
-                style={{ background: blackoutBanner.kind === "all-day"
-                  ? "color-mix(in oklab, var(--foreground) 16%, transparent)"
-                  : "color-mix(in oklab, var(--foreground) 10%, transparent)" }}
+                style={{
+                  background:
+                    blackoutBanner.kind === "all-day"
+                      ? "color-mix(in oklab, var(--foreground) 16%, transparent)"
+                      : "color-mix(in oklab, var(--foreground) 10%, transparent)",
+                }}
               >
                 {blackoutBanner.text}
               </div>
@@ -215,7 +247,7 @@ export default function BookPage() {
                 <div className="muted">Choose a room to see slots.</div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {slots.map(s => {
+                  {slots.map((s) => {
                     const disabled = disabledSlotIds.has(s.id) || bookingId === s.id;
                     return (
                       <button
@@ -234,8 +266,7 @@ export default function BookPage() {
             </div>
 
             <p className="text-sm mt-3 muted">
-              Manage bookings on the{" "}
-              <a className="underline" href="/reservations">My Reservations</a> page.
+              Manage bookings on the <a className="underline" href="/reservations">My Reservations</a> page.
             </p>
           </>
         )}

@@ -12,6 +12,7 @@ const LINKS: NavItem[] = [
   { href: "/book", label: "Book a Room" },
   { href: "/reservations", label: "My Reservations" },
   { href: "/staff", label: "Staff" },
+  { href: "/account", label: "Account" },        
   { href: "/login", label: "Login / Signup" },
 ];
 
@@ -40,9 +41,8 @@ export default function NavBar() {
           {/* Desktop links */}
           <ul className="hidden md:flex items-center gap-6">
             {LINKS.map((l) => {
-              const isActive = l.href === "/"
-                ? pathname === "/"
-                : pathname?.startsWith(l.href);
+              const isActive =
+                l.href === "/" ? pathname === "/" : pathname?.startsWith(l.href);
               return (
                 <li key={l.href}>
                   <Link

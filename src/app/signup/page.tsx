@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { getBrowserClient } from "@/lib/supabaseClient";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getBrowserClient } from "@/lib/supabaseBrowser";
 
 export default function SignupPage() {
   const supabase = getBrowserClient();
+  const router = useRouter();
+  const qs = useSearchParams();
+
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -16,28 +20,53 @@ export default function SignupPage() {
     setErrorMsg("");
     setLoading(true);
 
-    // 1️⃣ Sign up user
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      // 1) Create auth user; stash full_name in metadata
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName, role: "user" },
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
+      });
+      if (error) {
+        setErrorMsg(error.message);
+        return;
+      }
 
-    if (error) {
-      setErrorMsg(error.message);
+      // 2) Only upsert profile if a SESSION exists (email confirmations OFF).
+      //    If confirmations are ON, there is no session yet -> skip (RLS would block).
+      if (data.session && data.user?.id) {
+        const { error: upsertErr } = await supabase
+          .from("profiles")
+          .upsert(
+            { id: data.user.id, full_name: fullName, role: "user" },
+            { onConflict: "id" }
+          );
+        if (upsertErr) {
+          setErrorMsg(upsertErr.message);
+          return;
+        }
+      }
+
+      // 3) Sync cookies for SSR routes
+      await supabase.auth.getSession();
+
+      // 4) Redirect
+      const redirectTo = qs.get("redirect") || "/account";
+      if (data.session) {
+        router.push(redirectTo);
+        router.refresh();
+      } else {
+        // No session yet => email confirmation flow
+        router.push(
+          `/login?notice=confirm_email&redirect=${encodeURIComponent(redirectTo)}`
+        );
+      }
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // 2️⃣ Create profile record (if user exists)
-    if (data.user) {
-      await supabase
-        .from("profiles")
-        .update({ full_name: fullName })
-        .eq("id", data.user.id);
-    }
-
-    // 3️⃣ Redirect to /account
-    window.location.href = "/account";
   }
 
   return (
@@ -66,10 +95,11 @@ export default function SignupPage() {
           />
           <input
             type="password"
-            placeholder="Password"
+            placeholder="Password (min 8 chars)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            minLength={8}
             className="w-full rounded-lg border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
