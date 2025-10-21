@@ -34,11 +34,13 @@ export default async function AccountPage() {
     "user") as string;
 
   // Reservation count (not canceled)
-  const { count: reservationCount = 0 } = await supabase
-    .from("Reservations")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", uid)
-    .neq("status", "CANCELED");
+const { count } = await supabase
+  .from("Reservations")
+  .select("id", { count: "exact", head: true })
+  .eq("user_id", uid)
+  .neq("status", "CANCELED");
+
+const reservationCount = count ?? 0; // <- ensures it's a number
 
   return (
     <div className="mx-auto max-w-3xl p-6">
