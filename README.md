@@ -31,4 +31,5 @@ Roomie Rooms is a full-stack web app that lets students reserve and manage study
 - `Rooms` – room details (name, capacity, location)  
 - `TimeSlots` – time blocks for reservations  
 - `Reservations` – links users to rooms & timeslots  
-- `Settings` – global app preferences & blackout dates  
+- `Blackouts` – Dates or time ranges when rooms are unavailable
+- `profiles` – Stores student and staff profiles with roles
