@@ -8,16 +8,39 @@ import { getBrowserClient } from "@/lib/supabaseBrowser";
 /* ===== Types ===== */
 type Room = { id: string; name: string };
 type Slot = { id: string; starts_at: string; ends_at: string };
-type Reservation = { id: string; room_id: string; timeslot_id: string; date: string; status: string };
+type Reservation = {
+  id: string;
+  room_id: string;
+  timeslot_id: string;
+  date: string;
+  status: string;
+};
 type Blackout = {
-  date: string; scope: "GLOBAL" | "ROOM"; room_id: string | null;
-  is_all_day: boolean; start_time: string | null; end_time: string | null; note: string | null;
+  date: string;
+  scope: "GLOBAL" | "ROOM";
+  room_id: string | null;
+  is_all_day: boolean;
+  start_time: string | null;
+  end_time: string | null;
+  note: string | null;
 };
 
 /* ===== Helpers ===== */
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const parseTimeToMin = (t: string) => { const [hh, mm] = t.split(":").map(Number); return hh * 60 + (mm || 0); };
-const timesOverlap = (aS: number, aE: number, bS: number, bE: number) => !(aE <= bS || aS >= bE);
+
+const oneYearFromTodayISO = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
+const parseTimeToMin = (t: string) => {
+  const [hh, mm] = t.split(":").map(Number);
+  return hh * 60 + (mm || 0);
+};
+
+const timesOverlap = (aS: number, aE: number, bS: number, bE: number) =>
+  !(aE <= bS || aS >= bE);
 
 /* ====================================================================== */
 
@@ -35,6 +58,10 @@ export default function BookPage() {
   const [loadingStatic, setLoadingStatic] = useState(true);
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // confirmation state
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   /* ----- auth check + initial load ----- */
   useEffect(() => {
@@ -57,7 +84,10 @@ export default function BookPage() {
 
       const [rRooms, rSlots] = await Promise.all([
         supabase.from("Rooms").select("id,name").order("name"),
-        supabase.from("TimeSlots").select("id,starts_at,ends_at").order("starts_at"),
+        supabase
+          .from("TimeSlots")
+          .select("id,starts_at,ends_at")
+          .order("starts_at"),
       ]);
 
       if (rRooms.error) setErrorMsg(rRooms.error.message);
@@ -96,7 +126,9 @@ export default function BookPage() {
       const supabase = getBrowserClient();
       const { data, error } = await supabase
         .from("Blackouts")
-        .select("date,scope,room_id,is_all_day,start_time,end_time,note")
+        .select(
+          "date,scope,room_id,is_all_day,start_time,end_time,note"
+        )
         .eq("date", date);
 
       if (error) {
@@ -112,17 +144,39 @@ export default function BookPage() {
   /* ----- compute disabled slots ----- */
   const disabledSlotIds = useMemo(() => {
     if (!roomId) return new Set<string>();
-    const reserved = new Set(dayReservations.filter(r => r.room_id === roomId).map(r => r.timeslot_id));
-    const relevant = dayBlackouts.filter(b => b.scope === "GLOBAL" || (b.scope === "ROOM" && b.room_id === roomId));
-    if (relevant.some(b => b.is_all_day)) return new Set(slots.map(s => s.id));
 
-    const partials = relevant.filter(b => !b.is_all_day && b.start_time && b.end_time);
+    const reserved = new Set(
+      dayReservations
+        .filter((r) => r.room_id === roomId)
+        .map((r) => r.timeslot_id)
+    );
+
+    const relevant = dayBlackouts.filter(
+      (b) => b.scope === "GLOBAL" || (b.scope === "ROOM" && b.room_id === roomId)
+    );
+
+    if (relevant.some((b) => b.is_all_day))
+      return new Set(slots.map((s) => s.id));
+
+    const partials = relevant.filter(
+      (b) => !b.is_all_day && b.start_time && b.end_time
+    );
     if (partials.length === 0) return reserved;
 
     const out = new Set<string>(reserved);
     for (const s of slots) {
-      const sS = parseTimeToMin(s.starts_at), sE = parseTimeToMin(s.ends_at);
-      if (partials.some(b => timesOverlap(sS, sE, parseTimeToMin(b.start_time!), parseTimeToMin(b.end_time!)))) {
+      const sS = parseTimeToMin(s.starts_at),
+        sE = parseTimeToMin(s.ends_at);
+      if (
+        partials.some((b) =>
+          timesOverlap(
+            sS,
+            sE,
+            parseTimeToMin(b.start_time!),
+            parseTimeToMin(b.end_time!)
+          )
+        )
+      ) {
         out.add(s.id);
       }
     }
@@ -132,30 +186,53 @@ export default function BookPage() {
   /* ----- blackout banner ----- */
   const blackoutBanner = useMemo(() => {
     if (!roomId) return null;
-    const relevant = dayBlackouts.filter(b => b.scope === "GLOBAL" || (b.scope === "ROOM" && b.room_id === roomId));
+    const relevant = dayBlackouts.filter(
+      (b) => b.scope === "GLOBAL" || (b.scope === "ROOM" && b.room_id === roomId)
+    );
     if (relevant.length === 0) return null;
 
-    const allDay = relevant.find(b => b.is_all_day);
+    const allDay = relevant.find((b) => b.is_all_day);
     if (allDay) {
       return {
         kind: "all-day" as const,
         text:
           allDay.scope === "GLOBAL"
-            ? `All rooms are blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`
-            : `This room is blacked out all day on ${date}${allDay.note ? ` — ${allDay.note}` : ""}.`,
+            ? `All rooms are blacked out all day on ${date}${
+                allDay.note ? ` — ${allDay.note}` : ""
+              }.`
+            : `This room is blacked out all day on ${date}${
+                allDay.note ? ` — ${allDay.note}` : ""
+              }.`,
       };
     }
 
     const partials = relevant
-      .filter(b => !b.is_all_day && b.start_time && b.end_time)
-      .map(b => `${b.start_time!.slice(0, 5)}–${b.end_time!.slice(0, 5)}`);
+      .filter((b) => !b.is_all_day && b.start_time && b.end_time)
+      .map(
+        (b) => `${b.start_time!.slice(0, 5)}–${b.end_time!.slice(0, 5)}`
+      );
 
     return partials.length > 0
-      ? { kind: "partial" as const, text: `Some times are blacked out on ${date}: ${partials.join(", ")}.` }
+      ? {
+          kind: "partial" as const,
+          text: `Some times are blacked out on ${date}: ${partials.join(
+            ", "
+          )}.`,
+        }
       : null;
   }, [roomId, dayBlackouts, date]);
 
-  /* ----- booking ----- */
+  /* ----- open confirmation instead of booking immediately ----- */
+  function openConfirm(timeslotId: string) {
+    if (!roomId) {
+      alert("Pick a room first.");
+      return;
+    }
+    setSelectedSlotId(timeslotId);
+    setShowConfirm(true);
+  }
+
+  /* ----- booking (used by confirm button) ----- */
   async function book(timeslotId: string) {
     if (!roomId) {
       alert("Pick a room first.");
@@ -192,6 +269,13 @@ export default function BookPage() {
     setBookingId(null);
   }
 
+  async function handleConfirmBooking() {
+    if (!selectedSlotId) return;
+    await book(selectedSlotId);
+    setShowConfirm(false);
+    setSelectedSlotId(null);
+  }
+
   /* ============================== UI ============================== */
 
   return (
@@ -199,7 +283,11 @@ export default function BookPage() {
       <h1 className="heading text-3xl font-bold">Book a Room</h1>
 
       <section className="card">
-        {errorMsg && <div className="mb-3 text-red-600 dark:text-red-400">{errorMsg}</div>}
+        {errorMsg && (
+          <div className="mb-3 text-red-600 dark:text-red-400">
+            {errorMsg}
+          </div>
+        )}
         {loadingStatic ? (
           <div className="muted">Loading rooms & time slots…</div>
         ) : (
@@ -208,11 +296,21 @@ export default function BookPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm mb-1 muted">Date</label>
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  max={oneYearFromTodayISO()}
+                  className="input"
+                />
               </div>
               <div>
                 <label className="block text-sm mb-1 muted">Room</label>
-                <select value={roomId} onChange={(e) => setRoomId(e.target.value)} className="select">
+                <select
+                  value={roomId}
+                  onChange={(e) => setRoomId(e.target.value)}
+                  className="select"
+                >
                   <option value="" disabled>
                     Select a room…
                   </option>
@@ -248,14 +346,20 @@ export default function BookPage() {
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {slots.map((s) => {
-                    const disabled = disabledSlotIds.has(s.id) || bookingId === s.id;
+                    const disabled =
+                      disabledSlotIds.has(s.id) || bookingId === s.id;
                     return (
                       <button
                         key={s.id}
-                        onClick={() => book(s.id)}
+                        onClick={() => openConfirm(s.id)}
                         disabled={disabled}
-                        className={`btn-outline text-sm w-full ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
-                        title={`${s.starts_at.slice(0, 5)}–${s.ends_at.slice(0, 5)}`}
+                        className={`btn-outline text-sm w-full ${
+                          disabled ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                        title={`${s.starts_at.slice(0, 5)}–${s.ends_at.slice(
+                          0,
+                          5
+                        )}`}
                       >
                         {s.starts_at.slice(0, 5)}–{s.ends_at.slice(0, 5)}
                       </button>
@@ -266,11 +370,77 @@ export default function BookPage() {
             </div>
 
             <p className="text-sm mt-3 muted">
-              Manage bookings on the <a className="underline" href="/reservations">My Reservations</a> page.
+              Manage bookings on the{" "}
+              <a className="underline" href="/reservations">
+                My Reservations
+              </a>{" "}
+              page.
             </p>
           </>
         )}
       </section>
+
+      {/* confirmation modal */}
+      {showConfirm && selectedSlotId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg dark:bg-slate-900">
+            <h2 className="mb-2 text-lg font-semibold">
+              Confirm your reservation
+            </h2>
+
+            {(() => {
+              const slot = slots.find((s) => s.id === selectedSlotId);
+              const room = rooms.find((r) => r.id === roomId);
+              const timeLabel = slot
+                ? `${slot.starts_at.slice(0, 5)}–${slot.ends_at.slice(0, 5)}`
+                : "Selected time";
+
+              return (
+                <>
+                  <p className="mb-4 text-sm text-slate-700 dark:text-slate-200">
+                    You are about to book:
+                  </p>
+                  <ul className="mb-4 text-sm space-y-1">
+                    <li>
+                      <span className="font-medium">Room:</span>{" "}
+                      {room?.name ?? roomId}
+                    </li>
+                    <li>
+                      <span className="font-medium">Date:</span> {date}
+                    </li>
+                    <li>
+                      <span className="font-medium">Time:</span>{" "}
+                      {timeLabel}
+                    </li>
+                  </ul>
+                </>
+              );
+            })()}
+
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirm(false);
+                  setSelectedSlotId(null);
+                }}
+                className="rounded-md border px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                disabled={!!bookingId}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBooking}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                disabled={!!bookingId}
+              >
+                {bookingId ? "Booking..." : "Confirm booking"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

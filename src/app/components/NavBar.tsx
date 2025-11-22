@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import ThemeToggle from "./ThemeToggle";
 
 type NavItem = { href: string; label: string };
 
@@ -12,7 +11,7 @@ const LINKS: NavItem[] = [
   { href: "/book", label: "Book a Room" },
   { href: "/reservations", label: "My Reservations" },
   { href: "/staff", label: "Staff" },
-  { href: "/account", label: "Account" },        
+  { href: "/account", label: "Account" },
   { href: "/login", label: "Login / Signup" },
 ];
 
@@ -60,11 +59,6 @@ export default function NavBar() {
             })}
           </ul>
 
-          {/* Theme toggle (desktop) */}
-          <div className="hidden md:block">
-            <ThemeToggle />
-          </div>
-
           {/* Mobile menu button */}
           <button
             type="button"
@@ -102,9 +96,6 @@ export default function NavBar() {
                 </Link>
               </li>
             ))}
-            <li className="pt-2">
-              <ThemeToggle />
-            </li>
           </ul>
         </div>
       )}
