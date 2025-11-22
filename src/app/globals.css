@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* -------------------------------
-   Theme tokens (class-based)
+   Theme tokens (system-based)
 -------------------------------- */
 
 /* Light defaults */
@@ -14,27 +14,29 @@
   --panel: #ffffff;
   --panel-border: #e5e7eb;    /* gray-200 */
 
-  /* navbar (can be same or slightly different from panel) */
+  /* navbar */
   --nav-bg: var(--panel);
   --nav-border: var(--panel-border);
 
-  /* ensure native controls follow light theme in Safari */
+  /* native controls use light theme */
   color-scheme: light;
 }
 
-/* Dark when <html class="dark"> is present */
-html.dark {
-  --background: #0b0f19;      /* deep slate, calmer than pure black */
-  --foreground: #e5e7eb;      /* gray-200 */
+/* Dark when device is in dark mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0f19;      /* deep slate */
+    --foreground: #e5e7eb;      /* gray-200 */
 
-  --panel: #0f172a;           /* slate-900 */
-  --panel-border: #1f2937;    /* gray-800 */
+    --panel: #0f172a;           /* slate-900 */
+    --panel-border: #1f2937;    /* gray-800 */
 
-  --nav-bg: var(--panel);     /* tweak if you want a darker nav */
-  --nav-border: var(--panel-border);
+    --nav-bg: var(--panel);
+    --nav-border: var(--panel-border);
 
-  /* native controls match dark in Safari */
-  color-scheme: dark;
+    /* native controls use dark theme */
+    color-scheme: dark;
+  }
 }
 
 /* Base page styles */
@@ -71,7 +73,10 @@ body {
     background: #2563eb; /* blue-600 */
     color: white;
   }
-  .btn:hover { background: #1d4ed8; } /* blue-700 */
+
+  .btn:hover {
+    background: #1d4ed8; /* blue-700 */
+  }
 
   .btn-outline {
     @apply inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-sm
@@ -79,6 +84,7 @@ body {
     border-color: var(--panel-border);
     color: var(--foreground);
   }
+
   .btn-outline:hover {
     background: color-mix(in oklab, var(--foreground) 6%, transparent);
   }
@@ -92,7 +98,7 @@ body {
   }
 
   .select {
-    /* same base as .input but with a custom arrow that works in Safari */
+    /* same base as .input but with a custom arrow */
     @apply w-full rounded-lg px-3 py-2 text-sm transition
            focus:outline-none focus:ring-2 focus:ring-blue-500/40
            appearance-none pr-9 relative;
@@ -112,11 +118,15 @@ body {
     background-repeat: no-repeat;
   }
 
-  .table { @apply w-full text-sm; }
+  .table {
+    @apply w-full text-sm;
+  }
+
   .th {
     @apply text-left font-semibold border-b py-2;
     border-color: var(--panel-border);
   }
+
   .td {
     @apply border-b py-2;
     border-color: var(--panel-border);
